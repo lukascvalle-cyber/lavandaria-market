@@ -397,8 +397,7 @@ function mapR(){
 function exportCsv(){
   const hdr=['Nome','Cidade','Regi\u00e3o','Morada','Avalia\u00e7\u00e3o','Reviews','Telefone','Website','Google Maps'];
   const rows=F.map(l=>[l.n,l.c,l.rg,l.a,l.rt??'',l.rv,l.ph,l.w,l.url]);
-  const csv=[hdr,...rows].map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('
-');
+  const csv=[hdr,...rows].map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');
   const a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
   a.download='lavanderias_portugal.csv';a.click();
