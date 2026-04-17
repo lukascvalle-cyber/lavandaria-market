@@ -1,7 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
-import { Download, RefreshCw, Table2, Map, Loader2 } from "lucide-react";
+import { useEffect, useState, useMemo } from "react";
+import { Download, Table2, Map, Loader2 } from "lucide-react";
 import type { Laundry, Stats, FilterOptions } from "./types";
-import { apiUrl } from "./api";
 import StatsBar from "./components/StatsBar";
 import Filters from "./components/Filters";
 import LaundryTable from "./components/LaundryTable";
@@ -9,13 +8,57 @@ import LaundryMap from "./components/LaundryMap";
 
 type View = "table" | "map";
 
+function computeStats(data: Laundry[]): Stats {
+  const byRegion: Record<string, number> = {};
+  let ratingSum = 0;
+  let ratingCount = 0;
+
+  for (const l of data) {
+    if (l.region) byRegion[l.region] = (byRegion[l.region] ?? 0) + 1;
+    if (l.rating != null) { ratingSum += l.rating; ratingCount++; }
+  }
+
+  const sorted = [...data].sort((a, b) => b.reviews_count - a.reviews_count);
+
+  return {
+    total: data.length,
+    avg_rating: ratingCount > 0 ? Math.round((ratingSum / ratingCount) * 100) / 100 : null,
+    by_region: Object.entries(byRegion)
+      .map(([region, count]) => ({ region, count }))
+      .sort((a, b) => b.count - a.count),
+    top_laundry: sorted[0]
+      ? { name: sorted[0].name, reviews_count: sorted[0].reviews_count, city: sorted[0].city, rating: sorted[0].rating }
+      : null,
+  };
+}
+
+function computeFilterOptions(data: Laundry[]): FilterOptions {
+  return {
+    regions: [...new Set(data.map(l => l.region).filter(Boolean))].sort(),
+    cities: [...new Set(data.map(l => l.city).filter(Boolean))].sort(),
+  };
+}
+
+function exportCsv(data: Laundry[]) {
+  const header = ["Nome","Cidade","Região","Morada","Avaliação","Nº Reviews","Telefone","Website","Google Maps"];
+  const rows = data.map(l => [
+    l.name, l.city, l.region, l.address,
+    l.rating ?? "", l.reviews_count,
+    l.phone ?? "", l.website ?? "", l.google_maps_url,
+  ]);
+  const csv = [header, ...rows]
+    .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "lavanderias_portugal.csv"; a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function App() {
-  const [laundries, setLaundries] = useState<Laundry[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
+  const [allData, setAllData] = useState<Laundry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [view, setView] = useState<View>("table");
 
   const [region, setRegion] = useState("");
@@ -23,66 +66,24 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [minReviews, setMinReviews] = useState("");
 
-  const fetchLaundries = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (region) params.set("region", region);
-    if (city) params.set("city", city);
-    if (search) params.set("search", search);
-    if (minReviews) params.set("min_reviews", minReviews);
-
-    const res = await fetch(apiUrl(`/api/laundries?${params}`));
-    const data = await res.json();
-    setLaundries(data);
-  }, [region, city, search, minReviews]);
-
   useEffect(() => {
-    Promise.all([
-      fetch(apiUrl("/api/stats")).then((r) => r.json()),
-      fetch(apiUrl("/api/filters")).then((r) => r.json()),
-    ]).then(([statsData, filtersData]) => {
-      setStats(statsData);
-      setFilterOptions(filtersData);
-    });
+    fetch("/laundries.json")
+      .then(r => r.json())
+      .then((data: Laundry[]) => { setAllData(data); setLoading(false); })
+      .catch(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    setLoading(true);
-    fetchLaundries().finally(() => setLoading(false));
-  }, [fetchLaundries]);
+  const filtered = useMemo(() => {
+    let d = allData;
+    if (region) d = d.filter(l => l.region === region);
+    if (city) d = d.filter(l => l.city === city);
+    if (search) d = d.filter(l => l.name.toLowerCase().includes(search.toLowerCase()));
+    if (minReviews) d = d.filter(l => l.reviews_count >= Number(minReviews));
+    return d;
+  }, [allData, region, city, search, minReviews]);
 
-  async function handleScrape() {
-    setScraping(true);
-    setScrapeError(null);
-    try {
-      await fetch(apiUrl("/api/scrape"), { method: "POST" });
-      const poll = setInterval(async () => {
-        const res = await fetch(apiUrl("/api/scrape/status"));
-        const status = await res.json();
-        if (!status.running) {
-          clearInterval(poll);
-          setScraping(false);
-          if (status.error) {
-            setScrapeError(status.error);
-          } else {
-            await Promise.all([
-              fetch(apiUrl("/api/stats")).then((r) => r.json()).then(setStats),
-              fetch(apiUrl("/api/filters")).then((r) => r.json()).then(setFilterOptions),
-              fetchLaundries(),
-            ]);
-          }
-        }
-      }, 3000);
-    } catch {
-      setScraping(false);
-    }
-  }
-
-  function clearFilters() {
-    setRegion("");
-    setCity("");
-    setSearch("");
-    setMinReviews("");
-  }
+  const stats = useMemo(() => computeStats(filtered), [filtered]);
+  const filterOptions = useMemo(() => computeFilterOptions(allData), [allData]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -97,31 +98,12 @@ export default function App() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={apiUrl("/api/export/csv")}
+            <button
+              onClick={() => exportCsv(filtered)}
               className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
             >
               <Download className="w-4 h-4" />
               CSV
-            </a>
-            <a
-              href={apiUrl("/api/export/excel")}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-gray-600"
-            >
-              <Download className="w-4 h-4" />
-              Excel
-            </a>
-            <button
-              onClick={handleScrape}
-              disabled={scraping}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {scraping ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <RefreshCw className="w-4 h-4" />
-              )}
-              {scraping ? "A recolher dados..." : "Recolher dados"}
             </button>
           </div>
         </header>
@@ -138,7 +120,7 @@ export default function App() {
           onCityChange={setCity}
           onSearchChange={setSearch}
           onMinReviewsChange={setMinReviews}
-          onClear={clearFilters}
+          onClear={() => { setRegion(""); setCity(""); setSearch(""); setMinReviews(""); }}
         />
 
         <div className="flex items-center gap-2 mb-4">
@@ -166,20 +148,14 @@ export default function App() {
           </button>
         </div>
 
-        {scrapeError && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
-            <strong>Erro no scraping:</strong> {scrapeError}
-          </div>
-        )}
-
         {loading ? (
           <div className="flex items-center justify-center py-24">
             <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           </div>
         ) : view === "table" ? (
-          <LaundryTable laundries={laundries} />
+          <LaundryTable laundries={filtered} />
         ) : (
-          <LaundryMap laundries={laundries} />
+          <LaundryMap laundries={filtered} />
         )}
       </div>
     </div>
