@@ -31,7 +31,10 @@
       "Bash(mkdir -p c:/Users/lukas/Documents/lavandaria-market/frontend/public)",
       "Bash(awk '{printf \"%.0f KB\\\\n\", $1/1024}')",
       "Bash(curl -s http://localhost:4174/laundries.json)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'OK — {len\\(d\\)} laundries, top: {d[0][\\\\\"name\\\\\"]} \\({d[0][\\\\\"reviews_count\\\\\"]} reviews\\)'\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'OK — {len\\(d\\)} laundries, top: {d[0][\\\\\"name\\\\\"]} \\({d[0][\\\\\"reviews_count\\\\\"]} reviews\\)'\\)\")",
+      "Read(//tmp/**)",
+      "Bash(python generate_static.py)",
+      "Bash(awk '{printf \"%d KB\\\\n\", $1/1024}')"
     ]
   }
 }
