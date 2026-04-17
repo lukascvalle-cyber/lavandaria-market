@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://localhost:8000/api/debug/test-key)",
+      "Bash(python -m uvicorn api:app --reload --port 8000)"
+    ]
+  }
+}
